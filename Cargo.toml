@@ -1,0 +1,17 @@
+[package]
+name = "fido2-ssh-keygen"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+ctap-hid-fido2 = "3"
+rpassword = "7"
+ssh-key = "0.6"
+
+[profile.release]
+strip = true
+lto = "fat"
+codegen-units = 1
+panic = "abort"
