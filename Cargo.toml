@@ -5,10 +5,13 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
+byteorder = "1"
 clap = { version = "4", features = ["derive"] }
 ctap-hid-fido2 = "3"
 rpassword = "7"
+ssh-encoding = "0.2"
 ssh-key = "0.6"
+thiserror = "1"
 
 [profile.release]
 strip = true

@@ -10,6 +10,8 @@ use ssh_key::{
     public, LineEnding, PrivateKey, PublicKey,
 };
 
+mod sshagent;
+
 fn is_supported(device: &FidoKeyHid) -> Result<bool> {
     if device.enable_info_option(&InfoOption::CredMgmt)?.is_some() {
         return Ok(true);
@@ -45,8 +47,13 @@ struct ExportArgs {
     #[arg(short = 'O', long)]
     option: Vec<String>,
 
+    /// Output key file, this option not support when -A is set
     #[arg(short = 'f')]
     output_keyfile: Option<String>,
+
+    /// Append the key handle to the ssh agent
+    #[arg(short = 'A')]
+    agent: bool,
 }
 
 fn keygen(args: &ExportArgs) -> Result<()> {
@@ -145,38 +152,53 @@ fn keygen(args: &ExportArgs) -> Result<()> {
             }
         };
 
-        let private_key = PrivateKey::new(keydata, args.comment.clone().unwrap_or(id.clone()))?;
+        let comment = args.comment.clone().unwrap_or(id.clone());
+        let private_key = PrivateKey::new(keydata.clone(), comment.clone())?;
 
-        let key_path = args.output_keyfile.clone().unwrap_or(format!(
-            "id_ed25519_sk_rk_{}",
-            id.trim_start_matches("ssh:")
-        ));
-        let public_key_path = format!("{}.pub", key_path);
-        println!("write private key to {}", key_path);
-        println!("write public key to {}", public_key_path);
+        let to_agent = args.agent;
+        if to_agent {
+            let mut agent = sshagent::SSHAgent::new()?;
+            let req = sshagent::Request::AddIdentity(sshagent::AddIdentity {
+                privkey: keydata,
+                comment,
+            });
+            let resp = agent.request(req)?;
+            match resp {
+                sshagent::Response::Success => println!("Success"),
+                sshagent::Response::Failure => println!("Failure"),
+            }
+        } else {
+            let key_path = args.output_keyfile.clone().unwrap_or(format!(
+                "id_ed25519_sk_rk_{}",
+                id.trim_start_matches("ssh:")
+            ));
+            let public_key_path = format!("{}.pub", key_path);
+            println!("write private key to {}", key_path);
+            println!("write public key to {}", public_key_path);
 
-        let pem = private_key.to_openssh(LineEnding::LF)?;
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(key_path)?;
-        file.set_permissions(fs::Permissions::from_mode(0o600))?;
-        file.write_all(pem.as_bytes())?;
+            let pem = private_key.to_openssh(LineEnding::LF)?;
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(key_path)?;
+            file.set_permissions(fs::Permissions::from_mode(0o600))?;
+            file.write_all(pem.as_bytes())?;
 
-        let pk_buf = public_key.to_openssh()?;
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(public_key_path)?;
+            let pk_buf = public_key.to_openssh()?;
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(public_key_path)?;
 
-        file.set_permissions(fs::Permissions::from_mode(0o644))?;
-        if flag & SSH_SK_USER_PRESENCE_REQD == 0 {
-            file.write_all(b"no-touch-required ")?;
+            file.set_permissions(fs::Permissions::from_mode(0o644))?;
+            if flag & SSH_SK_USER_PRESENCE_REQD == 0 {
+                file.write_all(b"no-touch-required ")?;
+            }
+
+            file.write_all(pk_buf.as_bytes())?;
         }
-
-        file.write_all(pk_buf.as_bytes())?;
     }
 
     Ok(())
